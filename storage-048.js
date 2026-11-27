@@ -1,0 +1,10 @@
+/* Non-destructive IndexedDB shadow archive; localStorage remains authoritative. */
+(function(){
+ let db, pending=false, busy=false, status='Opening IndexedDB…', timer;
+ const report=()=>{const e=document.getElementById('storage048status');if(e)e.textContent='Storage: '+status};
+ function snapshot(){const out={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('gfl-'))out[k]=localStorage.getItem(k)}return out}
+ function sync(){if(!db||busy){pending=true;return}busy=true;pending=false;try{const data=snapshot(),tx=db.transaction('snapshots','readwrite');tx.objectStore('snapshots').put({data,at:Date.now()},'latest');tx.oncomplete=()=>{busy=false;status='IndexedDB backup active ('+Object.keys(data).length+' save keys)';report();if(pending)sync()};tx.onabort=tx.onerror=()=>{busy=false;status='IndexedDB backup failed; local save unchanged';report()}}catch(e){busy=false;status='IndexedDB backup unavailable; local save unchanged';report()}}
+ function changed(){pending=true;clearTimeout(timer);timer=setTimeout(sync,500)}
+ window.GFLStorage048={changed,report,verify:async function(){if(!db)throw Error('IndexedDB unavailable');if(busy||pending)throw Error('Backup pending; try again shortly');const current=snapshot();return new Promise((resolve,reject)=>{const r=db.transaction('snapshots','readonly').objectStore('snapshots').get('latest');r.onerror=()=>reject(r.error);r.onsuccess=()=>{const saved=r.result?.data;if(!saved)return reject(Error('No backup yet'));const keys=Object.keys(current);if(keys.length!==Object.keys(saved).length||keys.some(k=>current[k]!==saved[k]))return reject(Error('Backup differs from current local save'));resolve(keys.length)}})}};
+ try{const req=indexedDB.open('GFL-storage-048',1);req.onupgradeneeded=()=>req.result.createObjectStore('snapshots');req.onsuccess=()=>{db=req.result;sync()};req.onerror=()=>{status='IndexedDB unavailable; local save unchanged';report()};req.onblocked=()=>{status='IndexedDB blocked; local save unchanged';report()}}catch(e){status='IndexedDB unavailable; local save unchanged';report()}
+})();
